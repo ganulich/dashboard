@@ -101,7 +101,19 @@
 
     <script>
         // === НАСТРОЙКИ ТОКЕНА И ОБНОВЛЕНИЯ ===
-        const OAUTH_TOKEN = 'y0__wgBEIy1shUY8etKIOTQkpsZMKfvmOUHHExXGskE42mj8yucekhmJ9ii--g'; 
+        
+        // Забираем токен из памяти браузера устройства
+        let OAUTH_TOKEN = localStorage.getItem('yandex_token');
+        // Если токена в памяти нет, просим пользователя его ввести
+        if (!OAUTH_TOKEN) {
+            OAUTH_TOKEN = prompt('Пожалуйста, введите ваш OAuth-токен Яндекса:');
+            if (OAUTH_TOKEN) {
+                localStorage.setItem('yandex_token', OAUTH_TOKEN);
+                } else {
+                    alert('Без токена дашборд работать не будет!');
+                    }
+        }
+                
         const UPDATE_INTERVAL = 5 * 60 * 1000; // 5 минут в миллисекундах
 
         // === РУЧНЫЕ ФИЛЬТРЫ ДАШБОРДА ===
