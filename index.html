@@ -156,7 +156,7 @@
             });
         }
 
-        function processAndRender(data) {
+              function processAndRender(data) {
             const dashboardEl = document.getElementById('dashboard');
             dashboardEl.innerHTML = ''; 
 
@@ -178,53 +178,72 @@
                 }
             }
 
-            // 2. Отбираем и преобразуем датчики
             if (!data.devices) return;
 
-            let sensors = data.devices
-                .filter(d => d.type === 'devices.types.sensor')
-                .map(d => {
-                    const room = roomById[d.room] || { name: 'Без комнаты', houseName: houseById[d.household_id] || 'Без дома' };
+            // 2. ОТБОР УСТРОЙСТВ: Полностью убираем фильтр типов. 
+            // Ищем любые девайсы, у которых внутри свойств (properties) есть климатические данные.
+            const sensors = [];
 
-                    let temperature = null;
-                    let humidity = null;
+            data.devices.forEach(d => {
+                let temperature = null;
+                let humidity = null;
+                let hasClimateData = false;
 
-                    for (const p of (d.properties || [])) {
-                        if (p.type === 'devices.properties.float') {
-                            if (p.parameters.instance === 'temperature') {
-                                temperature = p.state?.value ?? null;
-                            }
-                            if (p.parameters.instance === 'humidity') {
-                                humidity = p.state?.value ?? null;
-                            }
+                // Проверяем массив свойств (properties)
+                for (const p of (d.properties || [])) {
+                    if (p.parameters && p.parameters.instance === 'temperature') {
+                        temperature = p.state?.value ?? null;
+                        hasClimateData = true; // Устройство содержит данные температуры
+                    }
+                    if (p.parameters && p.parameters.instance === 'humidity') {
+                        humidity = p.state?.value ?? null;
+                        hasClimateData = true; // Устройство содержит данные влажности
+                    }
+                }
+
+                // Если устройство умеет измерять климат — забираем его, независимо от его типа в Яндексе
+                if (hasClimateData) {
+                    // Умное определение комнаты и дома
+                    let currentRoomName = 'Без комнаты';
+                    let currentHouseName = 'Без дома';
+
+                    if (d.room && roomById[d.room]) {
+                        currentRoomName = roomById[d.room].name;
+                        currentHouseName = roomById[d.room].houseName;
+                    } else {
+                        // Если датчик не привязан к комнате или структура сбита, ищем дом напрямую
+                        if (d.household_id && houseById[d.household_id]) {
+                            currentHouseName = houseById[d.household_id];
                         }
                     }
 
-                    return {
+                    sensors.push({
                         id:          d.id,
                         name:        d.name,
-                        roomName:    room.name,
-                        houseName:   room.houseName,
+                        roomName:    currentRoomName,
+                        houseName:   currentHouseName,
                         temperature: temperature,
                         humidity:    humidity
-                    };
-                });
+                    });
+                }
+            });
 
-            // 3. Применяем ручные фильтры (если они настроены в секции настроек)
-            if (FILTER_BY_IDS.length > 0) {
-                sensors = sensors.filter(s => FILTER_BY_IDS.includes(s.id));
+            // 3. Применяем ручные фильтры (если массивы в настройках пустые `[]`, они не мешают)
+            let filteredSensors = sensors;
+            if (typeof FILTER_BY_IDS !== 'undefined' && FILTER_BY_IDS.length > 0) {
+                filteredSensors = filteredSensors.filter(s => FILTER_BY_IDS.includes(s.id));
             }
-            if (FILTER_BY_HOUSES.length > 0) {
-                sensors = sensors.filter(s => FILTER_BY_HOUSES.includes(s.houseName));
+            if (typeof FILTER_BY_HOUSES !== 'undefined' && FILTER_BY_HOUSES.length > 0) {
+                filteredSensors = filteredSensors.filter(s => FILTER_BY_HOUSES.includes(s.houseName));
             }
 
-            if (sensors.length === 0) {
-                dashboardEl.innerHTML = '<div style="color: #888; text-align: center; grid-column: 1/-1;">Датчики для отображения не найдены</div>';
+            if (filteredSensors.length === 0) {
+                dashboardEl.innerHTML = '<div style="color: #888; text-align: center; grid-column: 1/-1;">Датчики климата не найдены. Проверьте фильтры.</div>';
                 return;
             }
 
             // 4. Отрисовка готовых карточек умного дома
-            sensors.forEach(sensor => {
+            filteredSensors.forEach(sensor => {
                 const fullLocation = `${sensor.houseName} • ${sensor.roomName}`;
                 const tempText = sensor.temperature !== null ? `${sensor.temperature}°` : '--';
                 const humText = sensor.humidity !== null ? `💧 ${sensor.humidity}%` : '';
