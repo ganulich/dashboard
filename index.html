@@ -149,8 +149,12 @@
             sensors.forEach(sensor => {
                 let temp = '--';
                 let humidity = '';
+                
                 // Получаем имя комнаты (если не задано, пишем "Без комнаты")
-                let roomName = sensor.room_name || 'Без комнаты';
+                let roomName = 'Без комнаты';
+                if (sensor.room) {
+                    roomName = typeof sensor.room === 'object' ? (sensor.room.name || 'Без комнаты') : sensor.room;
+                    }
 
                 if (sensor.properties && sensor.properties.length > 0) {
                     sensor.properties.forEach(prop => {
