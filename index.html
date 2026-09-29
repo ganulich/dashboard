@@ -10,17 +10,16 @@
             color: #ffffff;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             margin: 0;
-            padding: 20px 20px 80px 20px; /* Отступ снизу для статуса */
+            padding: 20px 20px 80px 20px;
             display: flex;
             flex-direction: column;
             align-items: center;
             min-height: 100vh;
             box-sizing: border-box;
-            overflow-y: auto; /* Включаем вертикальную прокрутку */
+            overflow-y: auto; /* Вертикальный скролл для большого количества датчиков */
         }
         .container {
             display: grid;
-            /* Адаптивная сетка: карточки будут подстраиваться под размер экрана */
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
             gap: 25px;
             width: 100%;
@@ -40,7 +39,7 @@
         }
         .room-tag {
             font-size: 14px;
-            color: #ffaa00; /* Оранжевый цвет для комнаты */
+            color: #ffaa00; /* Неоново-оранжевый тег локации */
             font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 1px;
@@ -54,13 +53,13 @@
         .temp-value {
             font-size: 76px;
             font-weight: bold;
-            color: #00ffb3;
+            color: #00ffb3; /* Зеленый цвет для температуры */
             line-height: 1.1;
             margin: 10px 0;
         }
         .humidity-value {
             font-size: 20px;
-            color: #00a2ff;
+            color: #00a2ff; /* Синий цвет для влажности */
             margin-bottom: 15px;
         }
         .device-id {
@@ -101,9 +100,18 @@
     <div class="status" id="last-update">Обновление...</div>
 
     <script>
-        // === НАСТРОЙКИ ===
+        // === НАСТРОЙКИ ТОКЕНА И ОБНОВЛЕНИЯ ===
         const OAUTH_TOKEN = 'y0__wgBEIy1shUY8etKIOTQkpsZMKfvmOUHHExXGskE42mj8yucekhmJ9ii--g'; 
-        const UPDATE_INTERVAL = 5 * 60 * 1000; // 5 минут
+        const UPDATE_INTERVAL = 5 * 60 * 1000; // 5 минут в миллисекундах
+
+        // === РУЧНЫЕ ФИЛЬТРЫ ДАШБОРДА ===
+        // Оставить датчики только конкретных домов, например: ['Квартира'] или ['Дача']
+        // Если хотите показывать ВСЕ дома, оставьте массив пустым: []
+        const FILTER_BY_HOUSES = []; 
+
+        // Оставить только определенные датчики по их ID.
+        // Если хотите показывать ВСЕ датчики, оставьте массив пустым: []
+        const FILTER_BY_IDS = []; 
 
         async function fetchSmartHomeData() {
             try {
@@ -118,14 +126,16 @@
                 if (!response.ok) throw new Error('Ошибка сети или неверный токен');
                 
                 const data = await response.json();
-                renderDashboard(data.devices);
+                
+                // Передаем сырые данные Яндекса на обработку и рендеринг
+                processAndRender(data);
             } catch (error) {
                 console.error(error);
                 document.getElementById('dashboard').innerHTML = `<div style="color: #ff3333; font-size: 20px; text-align: center; grid-column: 1/-1;">Ошибка: ${error.message}</div>`;
             }
         }
 
-        // Функция для удобного копирования ID при клике
+        // Функция копирования ID датчика кликом
         window.copyToClipboard = function(text) {
             navigator.clipboard.writeText(text).then(() => {
                 alert('ID скопирован в буфер обмена!');
@@ -134,98 +144,78 @@
             });
         }
 
-        function renderDashboard(devices) {
+        function processAndRender(data) {
             const dashboardEl = document.getElementById('dashboard');
             dashboardEl.innerHTML = ''; 
 
-            // === НАСТРОЙКИ ФИЛЬТРАЦИИ НА ЭКРАНЕ ===
-            // Оставить только определенные дома. Например: ['Квартира'] или ['Дача']
-            // Если хотите показывать ВСЕ дома, оставьте массив пустым: []
-            const FILTER_BY_HOUSEHOLDS = []; 
-
-            // Оставить только конкретные датчики по их ID. 
-            // Если хотите показывать ВСЕ датчики, оставьте массив пустым: []
-            const FILTER_BY_IDS = []; 
-
-            // 1. Создаем словари для расшифровки ID домов и комнат
-            const householdsMap = {};
-            const roomsMap = {};
-
-            devices.forEach(device => {
-                // Собираем карту Домов (Household ID -> Название дома)
-                if (device.household_id && device.household_name) {
-                    householdsMap[device.household_id] = device.household_name;
-                } else if (device.household && typeof device.household === 'object') {
-                    if (device.household.id && device.household.name) {
-                        householdsMap[device.household.id] = device.household.name;
-                    }
+            // 1. Создаем быстрые словари по эталонной логике Яндекса
+            const houseById = {};
+            if (data.households) {
+                for (const h of data.households) {
+                    houseById[h.id] = h.name;
                 }
-
-                // Собираем карту Комнат (Room ID -> Название комнаты)
-                if (device.room) {
-                    if (typeof device.room === 'object' && device.room.id && device.room.name) {
-                        roomsMap[device.room.id] = device.room.name;
-                    }
-                }
-                if (device.room_id && device.room_name) {
-                    roomsMap[device.room_id] = device.room_name;
-                }
-            });
-
-            // 2. Базовый фильтр: отбираем только датчики
-            let sensors = devices.filter(device => device.type === 'devices.types.sensor');
-
-            // 3. Применяем фильтр по конкретным ID датчиков (если массив не пустой)
-            if (FILTER_BY_IDS.length > 0) {
-                sensors = sensors.filter(sensor => FILTER_BY_IDS.includes(sensor.id));
             }
 
-            // 4. Генерируем карточки
-            let visibleSensorsCount = 0;
-
-            sensors.forEach(sensor => {
-                // Расшифровываем название Дома
-                let houseName = 'Неизвестный дом';
-                if (sensor.household_id) {
-                    houseName = householdsMap[sensor.household_id] || 'Дом';
-                } else if (sensor.household) {
-                    houseName = typeof sensor.household === 'object' ? (sensor.household.name || 'Дом') : (householdsMap[sensor.household] || 'Дом');
+            const roomById = {};
+            if (data.rooms) {
+                for (const r of data.rooms) {
+                    roomById[r.id] = {
+                        name: r.name,
+                        houseName: houseById[r.household_id] || 'Без дома'
+                    };
                 }
+            }
 
-                // Применяем фильтр по конкретным Домам (если массив не пустой)
-                if (FILTER_BY_HOUSEHOLDS.length > 0 && !FILTER_BY_HOUSEHOLDS.includes(houseName)) {
-                    return; // Пропускаем этот датчик, если его дома нет в списке разрешенных
-                }
+            // 2. Отбираем и преобразуем датчики
+            if (!data.devices) return;
 
-                visibleSensorsCount++;
+            let sensors = data.devices
+                .filter(d => d.type === 'devices.types.sensor')
+                .map(d => {
+                    const room = roomById[d.room] || { name: 'Без комнаты', houseName: houseById[d.household_id] || 'Без дома' };
 
-                // Расшифровываем название Комнаты
-                let roomName = 'Без комнаты';
-                if (sensor.room) {
-                    if (typeof sensor.room === 'object') {
-                        roomName = sensor.room.name || 'Без комнаты';
-                    } else if (typeof sensor.room === 'string') {
-                        roomName = roomsMap[sensor.room] || 'Комната';
+                    let temperature = null;
+                    let humidity = null;
+
+                    for (const p of (d.properties || [])) {
+                        if (p.type === 'devices.properties.float') {
+                            if (p.parameters.instance === 'temperature') {
+                                temperature = p.state?.value ?? null;
+                            }
+                            if (p.parameters.instance === 'humidity') {
+                                humidity = p.state?.value ?? null;
+                            }
+                        }
                     }
-                }
 
-                // Собираем красивую сдвоенную локацию
-                const fullLocation = `${houseName.toUpperCase()} • ${roomName.toUpperCase()}`;
+                    return {
+                        id:          d.id,
+                        name:        d.name,
+                        roomName:    room.name,
+                        houseName:   room.houseName,
+                        temperature: temperature,
+                        humidity:    humidity
+                    };
+                });
 
-                // Ищем показания температуры и влажности
-                let temp = '--';
-                let humidity = '';
+            // 3. Применяем ручные фильтры (если они настроены в секции настроек)
+            if (FILTER_BY_IDS.length > 0) {
+                sensors = sensors.filter(s => FILTER_BY_IDS.includes(s.id));
+            }
+            if (FILTER_BY_HOUSES.length > 0) {
+                sensors = sensors.filter(s => FILTER_BY_HOUSES.includes(s.houseName));
+            }
 
-                if (sensor.properties && sensor.properties.length > 0) {
-                    sensor.properties.forEach(prop => {
-                        if (prop.parameters && prop.parameters.instance === 'temperature') {
-                            temp = prop.state ? `${prop.state.value}°` : '--';
-                        }
-                        if (prop.parameters && prop.parameters.instance === 'humidity') {
-                            humidity = prop.state ? `💧 ${prop.state.value}%` : '';
-                        }
-                    });
-                }
+            if (sensors.length === 0) {
+                dashboardEl.innerHTML = '<div style="color: #888; text-align: center; grid-column: 1/-1;">Датчики для отображения не найдены</div>';
+                return;
+            }
+
+            // 4. Отрисовка готовых карточек умного дома
+            sensors.forEach(sensor => {
+                const fullLocation = `${sensor.houseName} • ${sensor.roomName}`;
+                const tempText = sensor.temperature !== null ? `${sensor.temperature}°` : '--';
+                const humText = sensor.humidity !== null ? `💧 ${sensor.humidity}%` : '';
 
                 const card = document.createElement('div');
                 card.className = 'card';
@@ -234,22 +224,18 @@
                         <div class="room-tag">${fullLocation}</div>
                         <div class="device-name">${sensor.name}</div>
                     </div>
-                    <div class="temp-value">${temp}</div>
-                    <div class="humidity-value">${humidity}</div>
+                    <div class="temp-value">${tempText}</div>
+                    <div class="humidity-value">${humText}</div>
                     <div class="device-id" onclick="copyToClipboard('${sensor.id}')" title="Кликните, чтобы скопировать">ID: ${sensor.id}</div>
                 `;
                 dashboardEl.appendChild(card);
             });
 
-            if (visibleSensorsCount === 0) {
-                dashboardEl.innerHTML = '<div style="color: #888; text-align: center; grid-column: 1/-1;">Датчики для выбранных условий не найдены</div>';
-                return;
-            }
-
             const now = new Date();
             document.getElementById('last-update').innerText = `Обновлено: ${now.toLocaleTimeString()}`;
         }
 
+        // Старт работы
         fetchSmartHomeData();
         setInterval(fetchSmartHomeData, UPDATE_INTERVAL);
     </script>
