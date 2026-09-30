@@ -100,14 +100,30 @@
     <div class="status" id="last-update">Обновление...</div>
 
     <script>
-        // Настройки. Интервал обновления.
+        // === Настройки ===
+        // Интервал обновления страницы
         const UPDATE_INTERVAL = 1 * 60 * 1000; // 1 минута в миллисекундах
 
-        // === АВТОМАТИЧЕСКОЕ ЧТЕНИЕ НАСТРОЕК ИЗ URL ===
+        // === АВТОМАТИЧЕСКОЕ ЧТЕНИЕ НАСТРОЕК ИЗ URL (CASE INSENSITIVE) ===
         const urlParams = new URLSearchParams(window.location.search);
         
-        // 1. Ищем токен сначала в URL (?token=...), а если его там нет — в памяти устройства
-        let OAUTH_TOKEN = urlParams.get('token') || localStorage.getItem('yandex_token');
+        // Создаем карту параметров в нижнем регистре для удобного поиска
+        const lowerParams = {};
+        for (const [key, value] of urlParams.entries()) {
+            lowerParams[key.toLowerCase()] = value;
+        }
+        
+        // 1. Ищем токен в URL. Проверяем ?token=, ?TOKEN=, ?Token= и т.д.
+        let tokenFromUrl = null;
+        for (const [key, value] of urlParams.entries()) {
+            if (key.toLowerCase() === 'token') {
+                tokenFromUrl = value; // Забираем оригинальное значение (НЕ в lowercase!)
+                break;
+            }
+        }
+
+        // Выбираем токен из ссылки или из памяти устройства
+        let OAUTH_TOKEN = tokenFromUrl || localStorage.getItem('yandex_token');
 
         if (!OAUTH_TOKEN) {
             OAUTH_TOKEN = prompt('Пожалуйста, введите ваш OAuth-токен Яндекса:');
@@ -117,16 +133,15 @@
                 alert('Без токена дашборд работать не будет!');
             }
         }
-                
-        // 2. Читаем фильтры из URL-параметров
-        // Передавать дома можно через запятую: ?house=Квартира  или  ?house=Квартира,Дача
-        const paramHouse = urlParams.get('house');
-        const FILTER_BY_HOUSES = paramHouse ? paramHouse.split(',').map(s => s.trim()) : [];
 
-        // Передавать ID датчиков можно через запятую: ?ids=id1,id2,id3
-        const paramIds = urlParams.get('ids');
-        const FILTER_BY_IDS = paramIds ? paramIds.split(',').map(s => s.trim()) : [];
+        // 2. Читаем фильтры домов (?house=...) и приводим значения к нижнему регистру
+        const paramHouse = lowerParams['house'];
+        const FILTER_BY_HOUSES = paramHouse ? paramHouse.split(',').map(s => s.trim().toLowerCase()) : [];
 
+        // 3. Читаем фильтры ID (?ids=...) и приводим значения к нижнему регистру
+        const paramIds = lowerParams['ids'];
+        const FILTER_BY_IDS = paramIds ? paramIds.split(',').map(s => s.trim().toLowerCase()) : [];
+  
         // Фукнция чтения данных из API Яндекса и запуска дальнейшей обработки
         // Yandex API endpoint: https://api.iot.yandex.net/v1.0/user/info
         async function fetchSmartHomeData() {
@@ -143,17 +158,14 @@
                 if (!response.ok) throw new Error('Ошибка сети или неверный токен');
                 
                 const data = await response.json();
-
-                // Передаем сырые данные Яндекса на обработку и рендеринг
                 processAndRender(data);
-
             } catch (error) {
                 console.error(error);
                 document.getElementById('dashboard').innerHTML = `<div style="color: #ff3333; font-size: 20px; text-align: center; grid-column: 1/-1;">Ошибка: ${error.message}</div>`;
             }
         }
 
-        // Функция копирования ID датчика кликом
+        // Функция копирования ID датчика
         window.copyToClipboard = function(text) {
             navigator.clipboard.writeText(text).then(() => {
                 alert('ID скопирован в буфер обмена!');
@@ -167,7 +179,6 @@
             const dashboardEl = document.getElementById('dashboard');
             dashboardEl.innerHTML = ''; 
 
-            // 1. Создаем быстрые словари по эталонной логике Яндекса
             const houseById = {};
             if (data.households) {
                 for (const h of data.households) {
@@ -187,8 +198,6 @@
 
             if (!data.devices) return;
 
-            // 2. ОТБОР УСТРОЙСТВ: Полностью убираем фильтр типов. 
-            // Ищем любые девайсы, у которых внутри свойств (properties) есть климатические данные.
             const sensors = [];
 
             data.devices.forEach(d => {
@@ -196,21 +205,18 @@
                 let humidity = null;
                 let hasClimateData = false;
 
-                // Проверяем массив свойств (properties)
                 for (const p of (d.properties || [])) {
                     if (p.parameters && p.parameters.instance === 'temperature') {
                         temperature = p.state?.value ?? null;
-                        hasClimateData = true; // Устройство содержит данные температуры
+                        hasClimateData = true;
                     }
                     if (p.parameters && p.parameters.instance === 'humidity') {
                         humidity = p.state?.value ?? null;
-                        hasClimateData = true; // Устройство содержит данные влажности
+                        hasClimateData = true;
                     }
                 }
 
-                // Если устройство умеет измерять климат — забираем его, независимо от его типа в Яндексе
                 if (hasClimateData) {
-                    // Умное определение комнаты и дома
                     let currentRoomName = 'Без комнаты';
                     let currentHouseName = 'Без дома';
 
@@ -218,7 +224,6 @@
                         currentRoomName = roomById[d.room].name;
                         currentHouseName = roomById[d.room].houseName;
                     } else {
-                        // Если датчик не привязан к комнате или структура сбита, ищем дом напрямую
                         if (d.household_id && houseById[d.household_id]) {
                             currentHouseName = houseById[d.household_id];
                         }
@@ -235,21 +240,21 @@
                 }
             });
 
-            // 3. Применяем ручные фильтры (если массивы в настройках пустые `[]`, они не мешают)
+            // === ПРИМЕНЕНИЕ СГГЛАЖЕННЫХ РЕГИСТРОНЕЗАВИСИМЫХ ФИЛЬТРОВ ===
             let filteredSensors = sensors;
-            if (typeof FILTER_BY_IDS !== 'undefined' && FILTER_BY_IDS.length > 0) {
-                filteredSensors = filteredSensors.filter(s => FILTER_BY_IDS.includes(s.id));
+            
+            if (FILTER_BY_IDS.length > 0) {
+                filteredSensors = filteredSensors.filter(s => FILTER_BY_IDS.includes(s.id.toLowerCase()));
             }
-            if (typeof FILTER_BY_HOUSES !== 'undefined' && FILTER_BY_HOUSES.length > 0) {
-                filteredSensors = filteredSensors.filter(s => FILTER_BY_HOUSES.includes(s.houseName));
+            if (FILTER_BY_HOUSES.length > 0) {
+                filteredSensors = filteredSensors.filter(s => FILTER_BY_HOUSES.includes(s.houseName.toLowerCase()));
             }
 
             if (filteredSensors.length === 0) {
-                dashboardEl.innerHTML = '<div style="color: #888; text-align: center; grid-column: 1/-1;">Датчики климата не найдены. Проверьте фильтры.</div>';
+                dashboardEl.innerHTML = '<div style="color: #888; text-align: center; grid-column: 1/-1;">Датчики не найдены. Проверьте параметры фильтрации в URL.</div>';
                 return;
             }
 
-            // 4. Отрисовка готовых карточек умного дома
             filteredSensors.forEach(sensor => {
                 const fullLocation = `${sensor.houseName} • ${sensor.roomName}`;
                 const tempText = sensor.temperature !== null ? `${sensor.temperature}°` : '--';
@@ -273,7 +278,7 @@
             document.getElementById('last-update').innerText = `Обновлено: ${now.toLocaleTimeString()}`;
         }
 
-        // Старт работы
+        // Старт работы и рабочий цикл
         fetchSmartHomeData();
         setInterval(fetchSmartHomeData, UPDATE_INTERVAL);
     </script>
