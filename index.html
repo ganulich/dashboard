@@ -100,32 +100,37 @@
     <div class="status" id="last-update">Обновление...</div>
 
     <script>
-        // === НАСТРОЙКИ ТОКЕНА И ОБНОВЛЕНИЯ ===
+        // Настройки. Интервал обновления.
+        const UPDATE_INTERVAL = 1 * 60 * 1000; // 1 минута в миллисекундах
+
+        // === АВТОМАТИЧЕСКОЕ ЧТЕНИЕ НАСТРОЕК ИЗ URL ===
+        const urlParams = new URLSearchParams(window.location.search);
         
-        // Забираем токен из памяти браузера устройства
-        let OAUTH_TOKEN = localStorage.getItem('yandex_token');
-        // Если токена в памяти нет, просим пользователя его ввести
+        // 1. Ищем токен сначала в URL (?token=...), а если его там нет — в памяти устройства
+        let OAUTH_TOKEN = urlParams.get('token') || localStorage.getItem('yandex_token');
+
         if (!OAUTH_TOKEN) {
             OAUTH_TOKEN = prompt('Пожалуйста, введите ваш OAuth-токен Яндекса:');
             if (OAUTH_TOKEN) {
                 localStorage.setItem('yandex_token', OAUTH_TOKEN);
-                } else {
-                    alert('Без токена дашборд работать не будет!');
-                    }
+            } else {
+                alert('Без токена дашборд работать не будет!');
+            }
         }
                 
-        const UPDATE_INTERVAL = 5 * 60 * 1000; // 5 минут в миллисекундах
+        // 2. Читаем фильтры из URL-параметров
+        // Передавать дома можно через запятую: ?house=Квартира  или  ?house=Квартира,Дача
+        const paramHouse = urlParams.get('house');
+        const FILTER_BY_HOUSES = paramHouse ? paramHouse.split(',').map(s => s.trim()) : [];
 
-        // === РУЧНЫЕ ФИЛЬТРЫ ДАШБОРДА ===
-        // Оставить датчики только конкретных домов, например: ['Квартира'] или ['Дача']
-        // Если хотите показывать ВСЕ дома, оставьте массив пустым: []
-        const FILTER_BY_HOUSES = []; 
+        // Передавать ID датчиков можно через запятую: ?ids=id1,id2,id3
+        const paramIds = urlParams.get('ids');
+        const FILTER_BY_IDS = paramIds ? paramIds.split(',').map(s => s.trim()) : [];
 
-        // Оставить только определенные датчики по их ID.
-        // Если хотите показывать ВСЕ датчики, оставьте массив пустым: []
-        const FILTER_BY_IDS = []; 
-
+        // Фукнция чтения данных из API Яндекса и запуска дальнейшей обработки
+        // Yandex API endpoint: https://api.iot.yandex.net/v1.0/user/info
         async function fetchSmartHomeData() {
+            if (!OAUTH_TOKEN) return;
             try {
                 const response = await fetch('https://api.iot.yandex.net/v1.0/user/info', {
                     method: 'GET',
@@ -138,9 +143,10 @@
                 if (!response.ok) throw new Error('Ошибка сети или неверный токен');
                 
                 const data = await response.json();
-                
+
                 // Передаем сырые данные Яндекса на обработку и рендеринг
                 processAndRender(data);
+
             } catch (error) {
                 console.error(error);
                 document.getElementById('dashboard').innerHTML = `<div style="color: #ff3333; font-size: 20px; text-align: center; grid-column: 1/-1;">Ошибка: ${error.message}</div>`;
@@ -156,7 +162,8 @@
             });
         }
 
-              function processAndRender(data) {
+        // Функция разбора данных из API Яндекса и вывода дашборда
+        function processAndRender(data) {
             const dashboardEl = document.getElementById('dashboard');
             dashboardEl.innerHTML = ''; 
 
